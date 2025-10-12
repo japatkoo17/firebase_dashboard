@@ -1,0 +1,46 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check if a user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if the user is an admin
+    // This is the robust way - checking a custom claim on the auth token.
+    // We will set this claim in a Cloud Function later.
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.admin == true;
+    }
+
+    // --- USERS COLLECTION ---
+    // Only admins can list and write to the users collection.
+    // A user can read their own document.
+    match /users/{userId} {
+      allow read: if isAdmin() || request.auth.uid == userId;
+      allow list, write: if isAdmin();
+    }
+    
+    // --- COMPANIES COLLECTION ---
+    // Admins can read and write all company data.
+    // Non-admins can read a company if they have permission.
+    match /companies/{companyId} {
+      allow read: if isAdmin() || (isAuthenticated() && companyId in get(/databases/$(database)/documents/permissions/$(request.auth.uid)).data.allowedCompanies);
+      allow list, write: if isAdmin();
+    }
+
+    // --- PERMISSIONS COLLECTION ---
+    // Only admins can read or write permissions.
+    match /permissions/{userId} {
+      allow read, write: if isAdmin();
+    }
+
+    // --- FINANCIAL DATA SUBCOLLECTION ---
+    // Access to financial data inherits rules from the parent company document.
+    match /companies/{companyId}/financial_data/{dataId} {
+       allow read, write: if isAdmin() || (isAuthenticated() && companyId in get(/databases/$(database)/documents/permissions/$(request.auth.uid)).data.allowedCompanies);
+    }
+  }
+}
