@@ -66,8 +66,8 @@ export default function CompanyForm({ onSubmit, initialData, isLoading = false }
        <div className="border-t border-border pt-4 mt-4 space-y-4">
           <h4 className="font-semibold text-md">AbraFlexi API Pripojenie</h4>
           <div className="space-y-2">
-            <label htmlFor="abraflexiUrl" className="block text-sm font-medium">URL Adresa (napr. https://demo.abraflexi.eu:5434/c/demo)</label>
-            <input id="abraflexiUrl" name="abraflexiUrl" type="url" value={formData.abraflexiUrl} onChange={handleChange} className="w-full input" />
+            <label htmlFor="abraflexiUrl" className="block text-sm font-medium">URL Adresa (vrátane `/c/identifikator_firmy/`)</label>
+            <input id="abraflexiUrl" name="abraflexiUrl" type="url" value={formData.abraflexiUrl} onChange={handleChange} className="w-full input" placeholder="https://vas-server.flexibee.eu/c/vasa_firma/" />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2"><label htmlFor="abraflexiUser" className="block text-sm font-medium">Používateľ</label><input id="abraflexiUser" name="abraflexiUser" value={formData.abraflexiUser} onChange={handleChange} className="w-full input" /></div>

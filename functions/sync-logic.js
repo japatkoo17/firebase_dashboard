@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+import fetch from 'node-fetch';
 
 // --- Configuration ---
 // Based on the provided AppScript code for SK legislation
@@ -29,14 +29,16 @@ function parseNumber(value) {
 
 /**
  * Fetches raw accounting data from the AbraFlexi API for a specific year.
- * @param {string} apiUrl The base URL of the company's AbraFlexi instance.
+ * @param {string} fullUrl The complete URL for the company's AbraFlexi endpoint.
  * @param {string} user The API username.
  * @param {string} password The API password.
  * @param {string} year The accounting year to fetch (e.g., "2025").
  * @returns {Promise<Array>} A promise that resolves to the raw account data.
  */
-async function fetchFromAbraFlexi(apiUrl, user, password, year = "2025") {
-  const endpoint = `${apiUrl}/stav-uctu/(ucetniObdobi%20%3D%20%22code%3A${year}%22)?limit=0&detail=full`;
+async function fetchFromAbraFlexi(fullUrl, user, password, year = "2025") {
+  // Ensure the URL ends with a slash before appending the endpoint details
+  const baseUrl = fullUrl.endsWith('/') ? fullUrl : `${fullUrl}/`;
+  const endpoint = `${baseUrl}stav-uctu/(ucetniObdobi%20%3D%20%22code%3A${year}%22)?limit=0&detail=full`;
   const credentials = Buffer.from(`${user}:${password}`).toString('base64');
   
   const headers = {
@@ -47,7 +49,8 @@ async function fetchFromAbraFlexi(apiUrl, user, password, year = "2025") {
   const response = await fetch(endpoint, { method: 'GET', headers: headers });
 
   if (!response.ok) {
-    throw new Error(`AbraFlexi API request failed: ${response.status} ${response.statusText}`);
+    const errorBody = await response.text();
+    throw new Error(`AbraFlexi API request failed: ${response.status} ${response.statusText}. Body: ${errorBody}`);
   }
 
   const jsonResponse = await response.json();
@@ -171,7 +174,7 @@ function processBalance(monthData, ucet, balance) {
  * @param {string} abraFlexiPassword The password from Secret Manager.
  * @returns {Promise<object>} A promise that resolves to the processed financial data.
  */
-async function synchronizeCompanyData(companyData, abraFlexiPassword) {
+export async function synchronizeCompanyData(companyData, abraFlexiPassword) {
     const { abraflexiUrl, abraflexiUser } = companyData;
     if (!abraflexiUrl || !abraflexiUser || !abraFlexiPassword) {
         throw new Error(`Missing AbraFlexi credentials for company ${companyData.name}`);
@@ -188,8 +191,3 @@ async function synchronizeCompanyData(companyData, abraFlexiPassword) {
         lastSync: new Date().toISOString(),
     };
 }
-
-
-module.exports = {
-    synchronizeCompanyData
-};

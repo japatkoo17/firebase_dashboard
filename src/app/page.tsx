@@ -1,18 +1,17 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { 
     signInWithEmailAndPassword, 
     GoogleAuthProvider, 
     signInWithRedirect,
-    getRedirectResult 
+    User
 } from 'firebase/auth';
-import { auth, db } from '@/lib/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { auth } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
-import { Loader2, TrendingUp, KeyRound, LogIn } from 'lucide-react';
+import { Loader2, TrendingUp, LogIn } from 'lucide-react';
+import { useAuth } from '@/lib/auth-provider';
 
 // A simple component for the Google icon
 const GoogleIcon = () => (
@@ -26,45 +25,28 @@ const GoogleIcon = () => (
 
 export default function LoginPage() {
   const router = useRouter();
+  const { user, isAdmin, loading: authLoading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isSigningIn, setIsSigningIn] = useState(false); // For button-specific loading
+  const [isSigningIn, setIsSigningIn] = useState(false);
 
   useEffect(() => {
-    const processRedirectResult = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result) {
-          const user = result.user;
-          const userDocRef = doc(db, 'users', user.uid);
-          const userDocSnap = await getDoc(userDocRef);
-
-          if (!userDocSnap.exists()) {
-            await setDoc(userDocRef, {
-              email: user.email,
-              displayName: user.displayName,
-              role: 'viewer', // Default role
-            });
-          }
-          router.push('/companies');
-        } else {
-          setLoading(false);
-        }
-      } catch (err: any) {
-        console.error("Redirect Sign-In Error:", err);
-        setError("Prihlásenie cez Google zlyhalo. Skúste to znova.");
-        setLoading(false);
+    // This effect handles redirection for already logged-in users.
+    if (!authLoading && user) {
+      if (isAdmin) {
+        router.replace('/admin');
+      } else {
+        router.replace('/companies');
       }
-    };
-    processRedirectResult();
-  }, [router]);
+    }
+  }, [user, isAdmin, authLoading, router]);
 
   const handleGoogleSignIn = async () => {
     setIsSigningIn(true);
     setError(null);
     const provider = new GoogleAuthProvider();
+    // We don't need to handle the result here, onIdTokenChanged in AuthProvider will.
     await signInWithRedirect(auth, provider);
   };
 
@@ -73,16 +55,18 @@ export default function LoginPage() {
     setIsSigningIn(true);
     setError(null);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      router.push('/companies');
-    } catch (err: any) {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      // Force refresh of the ID token to get the latest claims
+      await userCredential.user.getIdToken(true);
+      // The useEffect hook will now have the correct isAdmin status and handle the redirect.
+    } catch {
       setError("Nesprávny email alebo heslo. Skontrolujte svoje údaje a skúste to znova.");
-    } finally {
       setIsSigningIn(false);
     }
   };
 
-  if (loading) {
+  // While auth state is loading or if a user is found (and redirect is imminent), show a loader.
+  if (authLoading || user) {
     return (
         <main className="flex h-screen items-center justify-center bg-bg">
             <Loader2 className="animate-spin h-8 w-8 text-brand" />
@@ -90,6 +74,7 @@ export default function LoginPage() {
     );
   }
 
+  // Only show the login form if auth is resolved and there's no user.
   return (
     <div className="w-full lg:grid lg:min-h-screen lg:grid-cols-2 xl:min-h-screen">
       <div className="hidden bg-bg-muted lg:flex lg:flex-col items-center justify-center p-10 text-center">

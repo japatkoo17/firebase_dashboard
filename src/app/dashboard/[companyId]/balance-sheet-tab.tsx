@@ -8,8 +8,26 @@ import { ChartControls } from '@/components/ui/chart-controls';
 import { monthNames, monthNamesFull } from '@/lib/data';
 import { Landmark, PiggyBank, HandCoins, Building } from 'lucide-react';
 
+// Define specific types for the data structures to avoid 'any'
+interface MonthlyBalanceData {
+  month: number;
+  assets: number;
+  liabilities: number;
+  equity: number;
+  fixedAssets: number;
+  receivables: number;
+  cash: number;
+  otherAssets: number;
+  payables: number;
+  otherLiabilities: number;
+}
+
+interface BalanceSheetData {
+  monthly: MonthlyBalanceData[];
+}
+
 interface BalanceSheetTabProps {
-  data: any; // Data is now passed from the parent page
+  data: BalanceSheetData;
 }
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('sk-SK', { style: 'currency', currency: 'EUR' }).format(value);
@@ -35,7 +53,7 @@ export function BalanceSheetTab({ data: companyData }: BalanceSheetTabProps) {
     
     const lastSelectedMonth = Math.max(...selectedMonths);
     const lastSelectedMonthName = monthNamesFull[lastSelectedMonth - 1];
-    const latestData = companyData.monthly.find((d:any) => d.month === lastSelectedMonth) || companyData.monthly[companyData.monthly.length - 1];
+    const latestData = companyData.monthly.find((d: MonthlyBalanceData) => d.month === lastSelectedMonth) || companyData.monthly[companyData.monthly.length - 1];
 
     const assetsData = [
       { name: 'Dlhodobý majetok', value: latestData.fixedAssets },
@@ -51,8 +69,8 @@ export function BalanceSheetTab({ data: companyData }: BalanceSheetTabProps) {
     ].filter(d => d.value > 0);
 
     const cashTrendData = companyData.monthly
-      .filter((item: any) => item.month === 0 || selectedMonths.includes(item.month))
-      .map((item: any) => ({
+      .filter((item: MonthlyBalanceData) => item.month === 0 || selectedMonths.includes(item.month))
+      .map((item: MonthlyBalanceData) => ({
         name: item.month === 0 ? 'Zač.' : monthNames[item.month - 1],
         Hotovosť: item.cash,
       }));

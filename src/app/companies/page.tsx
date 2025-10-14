@@ -19,7 +19,7 @@ interface CompanyForDisplay {
 
 function CompaniesPage() {
   const router = useRouter();
-  const { user } = useAuth(); // Get the logged-in user
+  const { user, isAdmin } = useAuth(); // Get user and isAdmin status
 
   const [companies, setCompanies] = useState<CompanyForDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -27,30 +27,32 @@ function CompaniesPage() {
 
   useEffect(() => {
     if (!user) {
-      // withAuth HOC handles redirection, but we wait for the user object to be available.
       return;
     }
 
-    const fetchUserCompanies = async () => {
+    const fetchCompanies = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        // 1. Get user's permissions from the 'permissions' collection
-        const permissionsDocRef = doc(db, 'permissions', user.uid);
-        const permissionsSnap = await getDoc(permissionsDocRef);
+        let companiesQuery;
+        if (isAdmin) {
+          // Admin sees all companies
+          companiesQuery = query(collection(db, 'companies'));
+        } else {
+          // Regular user sees only allowed companies
+          const permissionsDocRef = doc(db, 'permissions', user.uid);
+          const permissionsSnap = await getDoc(permissionsDocRef);
 
-        if (!permissionsSnap.exists() || !permissionsSnap.data().allowedCompanies?.length) {
-          setCompanies([]);
-          setIsLoading(false);
-          return;
+          if (!permissionsSnap.exists() || !permissionsSnap.data().allowedCompanies?.length) {
+            setCompanies([]);
+            setIsLoading(false);
+            return;
+          }
+          const allowedCompanyIds = permissionsSnap.data().allowedCompanies as string[];
+          companiesQuery = query(collection(db, 'companies'), where('__name__', 'in', allowedCompanyIds));
         }
-
-        const allowedCompanyIds = permissionsSnap.data().allowedCompanies as string[];
-
-        // 2. Fetch company details for the allowed IDs
-        const companiesQuery = query(collection(db, 'companies'), where('__name__', 'in', allowedCompanyIds));
+        
         const companiesSnapshot = await getDocs(companiesQuery);
-
         const userCompanies = companiesSnapshot.docs.map(doc => ({
           id: doc.id,
           name: doc.data().name,
@@ -62,15 +64,15 @@ function CompaniesPage() {
         setCompanies(userCompanies);
 
       } catch (err) {
-        console.error("Error fetching user companies:", err);
+        console.error("Error fetching companies:", err);
         setError("Nepodarilo sa načítať vaše spoločnosti. Skúste to prosím neskôr.");
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchUserCompanies();
-  }, [user]);
+    fetchCompanies();
+  }, [user, isAdmin]);
 
   const handleCompanySelect = (companyId: string) => {
     router.push(`/dashboard/${companyId}`);
@@ -104,7 +106,12 @@ function CompaniesPage() {
         {!isLoading && !error && companies.length === 0 && (
             <div className="text-center bg-bg-muted p-8 rounded-lg">
                 <h3 className="text-xl font-semibold">Žiadne spoločnosti</h3>
-                <p className="text-text-muted mt-2">Momentálne nemáte priradený prístup k žiadnej spoločnosti. Kontaktujte prosím administrátora.</p>
+                <p className="text-text-muted mt-2">
+                    {isAdmin 
+                        ? "V systéme zatiaľ nie sú žiadne spoločnosti. Pridajte ich v admin paneli."
+                        : "Momentálne nemáte priradený prístup k žiadnej spoločnosti. Kontaktujte prosím administrátora."
+                    }
+                </p>
             </div>
         )}
 

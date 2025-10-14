@@ -94,7 +94,23 @@ export const mockAccountList = [
     { ucet: '601000', nazev: 'Tržby za vlastné výrobky' },
 ];
 
-export const mockAccountDetails: { [key: string]: any } = {
+// Define interfaces for mock account data to avoid 'any'
+interface MonthlyAccountDetail {
+  month: number;
+  openingBalance: number;
+  turnoverMd: number;
+  turnoverDal: number;
+  closingBalance: number;
+}
+
+interface AccountDetails {
+  accountNumber: string;
+  accountName: string;
+  openingBalanceYear: number;
+  monthlyDetails: MonthlyAccountDetail[];
+}
+
+export const mockAccountDetails: { [key: string]: AccountDetails } = {
   '221000': {
     accountNumber: '221000',
     accountName: 'Bankové účty',

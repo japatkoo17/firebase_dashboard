@@ -3,8 +3,8 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FilePenLine, Trash2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { UserProfile } from './user-form'; // Import the shared interface
+import { UserProfile } from './user-form';
+import { TableSkeleton } from '@/components/ui/table-skeleton';
 
 interface UsersTableProps {
   users: UserProfile[];
@@ -15,7 +15,13 @@ interface UsersTableProps {
 
 export default function UsersTable({ users, onEdit, onDelete, isLoading }: UsersTableProps) {
   if (isLoading) {
-    return <div className="text-center p-8">Načítavam používateľov...</div>;
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <TableSkeleton />
+        </CardContent>
+      </Card>
+    );
   }
   
   if (users.length === 0) {

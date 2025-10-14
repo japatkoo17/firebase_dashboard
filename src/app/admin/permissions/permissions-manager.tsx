@@ -142,7 +142,7 @@ export default function PermissionsManager() {
       <CardHeader>
         <CardTitle>Manažér Prístupov</CardTitle>
         {users.length === 0 ? (
-            <CardDescription>V systéme nie sú žiadni používatelia. Najprv ich pridajte v sekcii "Správa Používateľov".</CardDescription>
+            <CardDescription>V systéme nie sú žiadni používatelia. Najprv ich pridajte v sekcii &quot;Správa Používateľov&quot;.</CardDescription>
         ) : (
             <div className="flex flex-col md:flex-row md:items-center gap-4 mt-2">
                 <label htmlFor="user-select" className="font-semibold shrink-0">Používateľ:</label>
@@ -166,7 +166,7 @@ export default function PermissionsManager() {
         {isPermissionsLoading ? (
             <div className="flex items-center justify-center p-8"><Loader2 className="animate-spin mr-2" /> Načítavam povolenia...</div>
         ) : companies.length === 0 ? (
-            <p className="text-text-muted text-center py-4">V systéme nie sú žiadne spoločnosti. Najprv ich pridajte v sekcii "Správa Spoločností".</p>
+            <p className="text-text-muted text-center py-4">V systéme nie sú žiadne spoločnosti. Najprv ich pridajte v sekcii &quot;Správa Spoločností&quot;.</p>
         ) : (
             <div>
                 <h3 className="font-semibold mb-2">Prístup k Spoločnostiam</h3>

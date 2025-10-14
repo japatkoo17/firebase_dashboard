@@ -8,8 +8,29 @@ import { ChartControls, ViewType } from '@/components/ui/chart-controls';
 import { monthNames } from '@/lib/data';
 import { TrendingUp, TrendingDown, DollarSign, Euro } from 'lucide-react';
 
+// Define specific types for the data structures to avoid 'any'
+interface MonthlyPnlData {
+  month: number;
+  revenue: number;
+  costs: number;
+  profit: number;
+}
+
+interface CumulativePnlData {
+    month: number;
+    revenue: number;
+    costs: number;
+    profit: number;
+}
+
+interface PnlData {
+  monthly: MonthlyPnlData[];
+  cumulative: CumulativePnlData[];
+}
+
+
 interface PnlTabProps {
-  data: any; // Data is now passed from the parent page
+  data: PnlData; 
 }
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('sk-SK', { style: 'currency', currency: 'EUR' }).format(value);
@@ -21,8 +42,8 @@ export function PnlTab({ data: companyData }: PnlTabProps) {
   const processedData = useMemo(() => {
     if (!companyData) return { kpis: { totalRevenue: 0, totalCosts: 0, totalProfit: 0, margin: 0 }, chartData: [] };
     
-    const sourceData = companyData[viewType];
-    const filteredData = sourceData.filter((d: any) => selectedMonths.includes(d.month));
+    const sourceData: MonthlyPnlData[] | CumulativePnlData[] = companyData[viewType];
+    const filteredData = sourceData.filter((d: MonthlyPnlData | CumulativePnlData) => selectedMonths.includes(d.month));
 
     if (selectedMonths.length === 0) {
       return {
@@ -33,14 +54,14 @@ export function PnlTab({ data: companyData }: PnlTabProps) {
 
     let kpis;
     if (viewType === 'monthly') {
-      const totalRevenue = filteredData.reduce((sum: number, item: any) => sum + item.revenue, 0);
-      const totalCosts = filteredData.reduce((sum: number, item: any) => sum + item.costs, 0);
+      const totalRevenue = filteredData.reduce((sum: number, item: MonthlyPnlData) => sum + item.revenue, 0);
+      const totalCosts = filteredData.reduce((sum: number, item: MonthlyPnlData) => sum + item.costs, 0);
       const totalProfit = totalRevenue - totalCosts;
       const margin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
       kpis = { totalRevenue, totalCosts, totalProfit, margin };
     } else { // cumulative
-      const lastMonthData = filteredData[filteredData.length - 1] || { revenue: 0, costs: 0, profit: 0 };
-      const firstMonthData = sourceData[Math.min(...selectedMonths) - 2] || { revenue: 0, costs: 0, profit: 0 };
+      const lastMonthData = (filteredData[filteredData.length - 1] as CumulativePnlData) || { revenue: 0, costs: 0, profit: 0 };
+      const firstMonthData = (sourceData[Math.min(...selectedMonths) - 2] as CumulativePnlData) || { revenue: 0, costs: 0, profit: 0 };
       const totalRevenue = lastMonthData.revenue - firstMonthData.revenue;
       const totalCosts = lastMonthData.costs - firstMonthData.costs;
       const totalProfit = totalRevenue - totalCosts;
@@ -48,7 +69,7 @@ export function PnlTab({ data: companyData }: PnlTabProps) {
       kpis = { totalRevenue, totalCosts, totalProfit, margin };
     }
 
-    const chartData = filteredData.map((item: any) => ({
+    const chartData = filteredData.map((item: MonthlyPnlData | CumulativePnlData) => ({
       name: monthNames[item.month - 1],
       Tržby: item.revenue,
       Náklady: item.costs,

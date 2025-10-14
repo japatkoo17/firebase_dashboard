@@ -8,6 +8,14 @@ import { ChartControls } from '@/components/ui/chart-controls';
 import { mockAccountList, mockAccountDetails, monthNamesFull, monthNames } from '@/lib/data';
 import { BookOpen, TrendingUp, TrendingDown, Scale } from 'lucide-react';
 
+// Define a specific type for a monthly detail record to avoid 'any'
+interface MonthlyDetail {
+  month: number;
+  turnoverMd: number;
+  turnoverDal: number;
+  closingBalance: number;
+}
+
 const formatCurrency = (value: number) => new Intl.NumberFormat('sk-SK', { style: 'currency', currency: 'EUR' }).format(value);
 
 export function AccountExplorerTab() {
@@ -23,10 +31,10 @@ export function AccountExplorerTab() {
   };
 
   const filteredMonthlyDetails = useMemo(() => {
-    return accountData?.monthlyDetails.filter((item: any) => selectedMonths.includes(item.month)) || [];
+    return accountData?.monthlyDetails.filter((item: MonthlyDetail) => selectedMonths.includes(item.month)) || [];
   }, [accountData, selectedMonths]);
 
-  const chartData = filteredMonthlyDetails.map((item: any) => ({
+  const chartData = filteredMonthlyDetails.map((item: MonthlyDetail) => ({
     name: monthNames[item.month - 1],
     'Obrat MD': item.turnoverMd,
     'Obrat DAL': item.turnoverDal,
@@ -70,8 +78,8 @@ export function AccountExplorerTab() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <StatCard title="Číslo Účtu" value={accountData.accountNumber} icon={<BookOpen className="h-4 w-4" />} />
             <StatCard title="Počiatočný Stav (Rok)" value={formatCurrency(accountData.openingBalanceYear)} icon={<Scale className="h-4 w-4" />} />
-            <StatCard title="Obraty MD (zvolené)" value={formatCurrency(filteredMonthlyDetails.reduce((sum: number, item: any) => sum + item.turnoverMd, 0))} icon={<TrendingUp className="h-4 w-4" />} />
-            <StatCard title="Obraty DAL (zvolené)" value={formatCurrency(filteredMonthlyDetails.reduce((sum: number, item: any) => sum + item.turnoverDal, 0))} icon={<TrendingDown className="h-4 w-4" />} />
+            <StatCard title="Obraty MD (zvolené)" value={formatCurrency(filteredMonthlyDetails.reduce((sum: number, item: MonthlyDetail) => sum + item.turnoverMd, 0))} icon={<TrendingUp className="h-4 w-4" />} />
+            <StatCard title="Obraty DAL (zvolené)" value={formatCurrency(filteredMonthlyDetails.reduce((sum: number, item: MonthlyDetail) => sum + item.turnoverDal, 0))} icon={<TrendingDown className="h-4 w-4" />} />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -114,7 +122,7 @@ export function AccountExplorerTab() {
                           </tr>
                       </thead>
                       <tbody>
-                          {filteredMonthlyDetails.map((m: any) => (
+                          {filteredMonthlyDetails.map((m: MonthlyDetail) => (
                               <tr key={m.month} className="border-b border-border">
                                   <th scope="row" className="px-6 py-4 font-medium whitespace-nowrap">{monthNamesFull[m.month - 1]}</th>
                                   <td className="px-6 py-4 text-green-500 text-right">{formatCurrency(m.turnoverMd)}</td>

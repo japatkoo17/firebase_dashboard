@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { FilePenLine, Trash2, RefreshCw } from 'lucide-react';
 import { CompanyData } from './company-form';
+import { TableSkeleton } from '@/components/ui/table-skeleton';
 
 export interface Company extends CompanyData {
   id: string;
@@ -20,7 +21,13 @@ interface CompaniesTableProps {
 
 export default function CompaniesTable({ companies, onEdit, onDelete, onSync, syncingId, isLoading }: CompaniesTableProps) {
   if (isLoading) {
-    return <div className="text-center p-8">Načítavam spoločnosti...</div>;
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <TableSkeleton />
+        </CardContent>
+      </Card>
+    );
   }
   
   if (companies.length === 0) {

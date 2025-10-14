@@ -1,49 +1,86 @@
-const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { logger } = require("firebase-functions");
-const admin = require("firebase-admin");
-const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
-const { synchronizeCompanyData } = require('./sync-logic');
+import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
+import { logger } from "firebase-functions";
+import admin from "firebase-admin";
+import { synchronizeCompanyData } from './sync-logic.js';
 
+// --- INITIALIZATION ---
 admin.initializeApp();
 const db = admin.firestore();
-const secretManager = new SecretManagerServiceClient();
 
-// --- Helper Functions ---
-async function accessSecretVersion(secretName) {
-    const [version] = await secretManager.accessSecretVersion({
-        name: `projects/${process.env.GCLOUD_PROJECT}/secrets/${secretName}/versions/latest`,
-    });
-    return version.payload.data.toString('utf8');
-}
+// --- CALLABLE FUNCTIONS ---
 
-async function setSecretVersion(secretName, payload) {
-    // Check if secret exists, create if not
-    try {
-        await secretManager.getSecret({ name: `projects/${process.env.GCLOUD_PROJECT}/secrets/${secretName}` });
-    } catch (error) {
-        if (error.code === 5) { // NOT_FOUND
-            await secretManager.createSecret({
-                parent: `projects/${process.env.GCLOUD_PROJECT}`,
-                secretId: secretName,
-                secret: { replication: { automatic: {} } },
-            });
-        } else {
-            throw error;
-        }
+/**
+ * Stores the AbraFlexi password in a secure, server-only sub-collection.
+ */
+export const setAbraFlexiSecret = onCall(async (request) => {
+    if (!request.auth || !request.auth.token.admin) {
+        throw new HttpsError('permission-denied', 'Must be an admin to perform this action.');
     }
-    // Add new version
-    await secretManager.addSecretVersion({
-        parent: `projects/${process.env.GCLOUD_PROJECT}/secrets/${secretName}`,
-        payload: {
-            data: Buffer.from(payload, 'utf8'),
-        },
-    });
-}
+    const { companyId, password } = request.data;
+    if (!companyId || !password) {
+        throw new HttpsError('invalid-argument', 'Missing companyId or password.');
+    }
 
-// --- Callable Functions (triggered from the app) ---
+    try {
+        const credentialsRef = db.collection('companies').doc(companyId).collection('abraflexi_credentials').doc('credentials');
+        await credentialsRef.set({ password });
+        return { success: true, message: 'Password stored successfully.' };
+    } catch (error) {
+        logger.error(`Error storing password for company ${companyId}:`, error);
+        throw new HttpsError('internal', 'Failed to store the password in Firestore.');
+    }
+});
 
-exports.listUsers = onCall(async (request) => {
+/**
+ * Runs the data synchronization for a specific company.
+ */
+export const runCompanySync = onCall(async (request) => {
+    if (!request.auth || !request.auth.token.admin) {
+        throw new HttpsError('permission-denied', 'Must be an admin to perform this action.');
+    }
+    const { companyId } = request.data;
+    if (!companyId) {
+        throw new HttpsError('invalid-argument', 'Missing companyId.');
+    }
+
+    logger.info(`Manual sync triggered for company: ${companyId}`);
+    const companyRef = db.collection('companies').doc(companyId);
+
+    try {
+        const companySnap = await companyRef.get();
+        if (!companySnap.exists()) {
+            throw new HttpsError('not-found', 'Company not found.');
+        }
+
+        // 1. Get password from the secure sub-collection
+        const credentialsRef = companyRef.collection('abraflexi_credentials').doc('credentials');
+        const credentialsSnap = await credentialsRef.get();
+        if (!credentialsSnap.exists()) {
+            throw new HttpsError('not-found', 'Password for this company is not set. Please edit the company and set the password.');
+        }
+        const password = credentialsSnap.data().password;
+
+        // 2. Run the synchronization logic
+        const companyData = companySnap.data();
+        const financialData = await synchronizeCompanyData(companyData, password);
+        
+        // 3. Save the new financial data
+        await companyRef.collection('financial_data').doc('latest').set(financialData);
+        
+        logger.info(`Successfully synced data for company: ${companyId}`);
+        return { success: true, message: `Sync for ${companyData.name} complete.` };
+
+    } catch (error) {
+        logger.error(`Error syncing company ${companyId}:`, error);
+        throw new HttpsError('internal', error.message || 'Failed to synchronize company data.');
+    }
+});
+
+
+// --- Other Functions (Unchanged) ---
+
+export const listUsers = onCall(async (request) => {
     if (!request.auth || request.auth.token.admin !== true) {
       throw new HttpsError('permission-denied', 'Must be an admin to list users.');
     }
@@ -62,7 +99,7 @@ exports.listUsers = onCall(async (request) => {
     }
 });
 
-exports.setUserRole = onCall(async (request) => {
+export const setUserRole = onCall(async (request) => {
     if (!request.auth || request.auth.token.admin !== true) {
         throw new HttpsError('permission-denied', 'Must be an admin to set roles.');
     }
@@ -73,7 +110,6 @@ exports.setUserRole = onCall(async (request) => {
     try {
         const user = await admin.auth().getUserByEmail(email);
         await admin.auth().setCustomUserClaims(user.uid, { role: role, admin: role === 'admin' });
-        // Also update the role in Firestore for consistency
         await db.collection('users').doc(user.uid).set({ email: user.email, role: role }, { merge: true });
         return { success: true, message: `Role for ${email} has been set to ${role}.` };
     } catch (error) {
@@ -82,77 +118,45 @@ exports.setUserRole = onCall(async (request) => {
     }
 });
 
-
-exports.setAbraFlexiSecret = onCall(async (request) => {
+export const deleteUser = onCall(async (request) => {
     if (!request.auth || request.auth.token.admin !== true) {
-        throw new HttpsError('permission-denied', 'Must be an admin to perform this action.');
+        throw new HttpsError('permission-denied', 'Must be an admin to delete users.');
     }
-    const { companyId, password } = request.data;
-    if (!companyId || !password) {
-        throw new HttpsError('invalid-argument', 'Missing companyId or password.');
+    const { uid } = request.data;
+    if (!uid) {
+        throw new HttpsError('invalid-argument', 'Missing user ID.');
     }
-    const secretName = `abraflexi-password-${companyId}`;
-    await setSecretVersion(secretName, password);
-    return { success: true };
-});
-
-
-exports.runCompanySync = onCall(async (request) => {
-    if (!request.auth || request.auth.token.admin !== true) {
-        throw new HttpsError('permission-denied', 'Must be an admin to perform this action.');
-    }
-    const { companyId } = request.data;
-    if (!companyId) {
-        throw new HttpsError('invalid-argument', 'Missing companyId.');
-    }
-
-    logger.info(`Manual sync triggered for company: ${companyId}`);
-    const companyRef = db.collection('companies').doc(companyId);
-    const companySnap = await companyRef.get();
-
-    if (!companySnap.exists) {
-        throw new HttpsError('not-found', 'Company not found.');
-    }
-
     try {
-        const companyData = companySnap.data();
-        const secretName = `abraflexi-password-${companyId}`;
-        const password = await accessSecretVersion(secretName);
-        
-        const financialData = await synchronizeCompanyData(companyData, password);
-        
-        await companyRef.collection('financial_data').doc('latest').set(financialData);
-        
-        logger.info(`Successfully synced data for company: ${companyId}`);
-        return { success: true, message: `Sync for ${companyData.name} complete.` };
+        await admin.auth().deleteUser(uid);
+        await db.collection('users').doc(uid).delete();
+        await db.collection('permissions').doc(uid).delete();
+        return { success: true, message: `User ${uid} has been deleted.` };
     } catch (error) {
-        logger.error(`Error syncing company ${companyId}:`, error);
-        throw new HttpsError('internal', 'Failed to synchronize company data.', error.message);
+        logger.error(`Error deleting user ${uid}:`, error);
+        throw new HttpsError('internal', 'Failed to delete user.');
     }
 });
 
+// --- SCHEDULED FUNCTIONS ---
 
-// --- Scheduled Functions (runs automatically) ---
-
-exports.runAllCompaniesSync = onSchedule("every 24 hours", async (event) => {
+export const runAllCompaniesSync = onSchedule("every 24 hours", async () => {
     logger.info("Starting scheduled sync for all companies.");
     const companiesSnapshot = await db.collection('companies').get();
     
-    const syncPromises = [];
-
-    companiesSnapshot.forEach(doc => {
+    for (const doc of companiesSnapshot.docs) {
         const companyId = doc.id;
         const companyData = doc.data();
-        // Skip companies without API credentials
         if (!companyData.abraflexiUrl || !companyData.abraflexiUser) {
-            return;
+            logger.warn(`Skipping sync for ${companyId}, missing credentials.`);
+            continue;
         }
 
-        const promise = exports.runCompanySync({ data: { companyId }, auth: { token: { admin: true } } }) // Simulate admin auth for internal call
-            .catch(err => logger.error(`Scheduled sync failed for ${companyId}:`, err));
-        syncPromises.push(promise);
-    });
-
-    await Promise.all(syncPromises);
+        try {
+            await runCompanySync({ data: { companyId }, auth: { token: { admin: true } } });
+        } catch (err) {
+            logger.error(`Scheduled sync failed for ${companyId}:`, err);
+        }
+    }
+    
     logger.info("Finished scheduled sync for all companies.");
 });

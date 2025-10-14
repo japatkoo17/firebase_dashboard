@@ -1,14 +1,26 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, FirestoreError } from 'firebase/firestore';
+import { getFunctions, httpsCallable, HttpsCallableResult } from 'firebase/functions';
 import { Button } from '@/components/ui/button';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, AlertTriangle, Search } from 'lucide-react';
 import CompaniesTable, { Company } from './companies-table';
 import CompanyForm, { CompanyData } from './company-form';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+
+// Define a type for the data returned by the 'runCompanySync' function
+interface SyncResultData {
+  message: string;
+}
+
+interface HttpsError extends Error {
+    code: string;
+    details?: any;
+}
+
 
 export default function CompaniesAdminPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -18,7 +30,9 @@ export default function CompaniesAdminPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [syncingId, setSyncingId] = useState<string | null>(null); // For loading state on sync button
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+  
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     const companiesCollectionRef = collection(db, 'companies');
@@ -29,9 +43,9 @@ export default function CompaniesAdminPage() {
       } as Company));
       setCompanies(companiesData);
       setIsLoading(false);
-    }, (err) => {
+    }, (err: FirestoreError) => {
       console.error("Error fetching companies: ", err);
-      setError("Nepodarilo sa načítať dáta.");
+      setError(`Nepodarilo sa načítať dáta: ${err.message}`);
       setIsLoading(false);
     });
     return () => unsubscribe();
@@ -71,9 +85,10 @@ export default function CompaniesAdminPage() {
         }
       }
       success = true;
-    } catch (err) {
+    } catch (err: unknown) { // Better error handling
       console.error("Error saving company: ", err);
-      alert(`Vyskytla sa chyba: ${err.message}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      alert(`Vyskytla sa chyba: ${errorMessage}`);
     } finally {
       setIsSubmitting(false);
       if (success) {
@@ -87,8 +102,10 @@ export default function CompaniesAdminPage() {
     if (window.confirm('Naozaj si prajete vymazať túto spoločnosť?')) {
       try {
         await deleteDoc(doc(db, 'companies', companyId));
-      } catch (err) {
+      } catch (err: unknown) {
         console.error("Error deleting company: ", err);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        alert(`Chyba pri mazaní: ${errorMessage}`);
       }
     }
   };
@@ -98,33 +115,60 @@ export default function CompaniesAdminPage() {
     try {
         const functions = getFunctions();
         const runCompanySync = httpsCallable(functions, 'runCompanySync');
-        const result = await runCompanySync({ companyId });
-        alert(`Synchronizácia úspešne dokončená! Správa: ${(result.data as any).message}`);
-    } catch (error) {
+        const result: HttpsCallableResult<SyncResultData> = await runCompanySync({ companyId });
+        const message = result.data.message;
+        alert(`Synchronizácia úspešne dokončená! Správa: ${message}`);
+    } catch (error: unknown) {
         console.error("Error running sync:", error);
-        alert(`Chyba pri synchronizácii: ${error.message}`);
+        const err = error as HttpsError;
+        // Display the detailed error from the backend
+        const detailMessage = err.details ? ` Detail: ${err.details}` : '';
+        alert(`Chyba pri synchronizácii: ${err.message}${detailMessage}`);
     } finally {
         setSyncingId(null);
     }
   };
 
+  const filteredCompanies = useMemo(() => {
+    return companies.filter(company =>
+      company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      company.ico.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [companies, searchTerm]);
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Správa Spoločností</h1>
           <p className="text-text-muted">Prehľad všetkých spoločností v systéme.</p>
         </div>
-        <Button className="flex items-center gap-2" onClick={() => handleOpenDialog()}>
-          <PlusCircle className="h-4 w-4" />
-          <span>Pridať Spoločnosť</span>
-        </Button>
+        <div className="flex items-center gap-2">
+            <div className="relative w-full max-w-sm">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-text-muted" />
+                <Input 
+                    placeholder="Hľadať podľa názvu alebo IČO..." 
+                    className="pl-8" 
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+            <Button className="flex items-center gap-2" onClick={() => handleOpenDialog()}>
+                <PlusCircle className="h-4 w-4" />
+                <span>Pridať</span>
+            </Button>
+        </div>
       </div>
       
-      {error && <p className="text-red-500">{error}</p>}
+      {error && (
+        <div className="flex items-center gap-3 bg-red-500/10 text-red-500 p-4 rounded-md">
+            <AlertTriangle className="h-6 w-6" />
+            <p>{error}</p>
+        </div>
+      )}
 
       <CompaniesTable 
-        companies={companies} 
+        companies={filteredCompanies} 
         onEdit={handleOpenDialog} 
         onDelete={handleDeleteCompany} 
         onSync={handleSync}

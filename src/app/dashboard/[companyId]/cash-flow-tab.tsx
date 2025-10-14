@@ -1,13 +1,37 @@
 'use client';
 
 import React from 'react';
-import { ComposedChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import { ComposedChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatCard } from '@/components/ui/stat-card';
 import { Coins, ArrowUpRight, ArrowDownLeft, Banknote } from 'lucide-react';
 
+// Define specific types for the data structures to avoid 'any'
+interface MonthlyIncomeData {
+  profit: number;
+  depreciation: number;
+}
+
+interface MonthlyBalanceData {
+  cash: number;
+  receivables: number;
+  payables: number;
+  otherAssets: number;
+  fixedAssets: number;
+}
+
+interface BalanceSheetData {
+    monthly: MonthlyBalanceData[];
+}
+interface FinancialData {
+  incomeStatement: {
+    monthly: MonthlyIncomeData[];
+  };
+  balanceSheet: BalanceSheetData
+}
+
 interface CashFlowTabProps {
-  data: any; // Data is now passed from the parent page
+  data: FinancialData;
 }
 
 const formatCurrency = (value: number) => new Intl.NumberFormat('sk-SK', { style: 'currency', currency: 'EUR' }).format(value);
@@ -27,8 +51,8 @@ export function CashFlowTab({ data: financialData }: CashFlowTabProps) {
   const openingCash = startBalance.cash;
   const closingCash = endBalance.cash;
 
-  const periodProfit = incomeData.reduce((sum: number, d: any) => sum + d.profit, 0);
-  const periodDepreciation = incomeData.reduce((sum: number, d: any) => sum + d.depreciation, 0);
+  const periodProfit = incomeData.reduce((sum: number, d: MonthlyIncomeData) => sum + d.profit, 0);
+  const periodDepreciation = incomeData.reduce((sum: number, d: MonthlyIncomeData) => sum + d.depreciation, 0);
 
   const changeInReceivables = -(endBalance.receivables - startBalance.receivables);
   const changeInPayables = endBalance.payables - startBalance.payables;
@@ -78,7 +102,7 @@ export function CashFlowTab({ data: financialData }: CashFlowTabProps) {
               <XAxis dataKey="name" stroke="var(--color-text-muted)" />
               <YAxis tickFormatter={formatCurrency} stroke="var(--color-text-muted)" />
               <Tooltip
-                formatter={(value: any) => {
+                formatter={(value: number | [number, number]) => {
                     if (Array.isArray(value)) return formatCurrency(value[1] - value[0]);
                     return formatCurrency(value);
                 }}

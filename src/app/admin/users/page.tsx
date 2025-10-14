@@ -1,13 +1,19 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { getFunctions, httpsCallable, HttpsCallableResult } from 'firebase/functions';
 import { Button } from '@/components/ui/button';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, AlertTriangle, Search } from 'lucide-react';
 import UsersTable from './users-table';
 import UserForm, { UserFormData, UserProfile } from './user-form';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useAuth } from '@/lib/auth-provider';
+import { Input } from '@/components/ui/input';
+
+// Define types for the data returned by the cloud functions
+interface ListUsersData {
+  users: UserProfile[];
+}
 
 export default function UsersAdminPage() {
   const { user } = useAuth();
@@ -20,33 +26,33 @@ export default function UsersAdminPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const fetchUsers = async () => {
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const fetchUsers = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const functions = getFunctions();
       const listUsers = httpsCallable(functions, 'listUsers');
-      const result = await listUsers();
-      const data = result.data as { users: UserProfile[] };
-      setUsers(data.users);
-    } catch (err: any) {
+      const result: HttpsCallableResult<ListUsersData> = await listUsers();
+      setUsers(result.data.users);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "An unknown error occurred.";
       console.error("Error fetching users:", err);
-      setError("Nepodarilo sa načítať zoznam používateľov. Uistite sa, že máte oprávnenia a skúste obnoviť stránku.");
+      setError(`Nepodarilo sa načítať zoznam používateľov. Uistite sa, že máte oprávnenia. Chyba: ${errorMessage}`);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    // We fetch users only when the component mounts and user is logged in.
-    // Real-time listener is not used here as user list doesn't change that frequently.
     if (user) {
-        fetchUsers();
+      fetchUsers();
     }
-  }, [user]);
+  }, [user, fetchUsers]);
 
-  const handleOpenDialog = (user: UserProfile | null = null) => {
-    setEditingUser(user);
+  const handleOpenDialog = (userToEdit: UserProfile | null = null) => {
+    setEditingUser(userToEdit);
     setFormError(null);
     setIsDialogOpen(true);
   };
@@ -61,10 +67,11 @@ export default function UsersAdminPage() {
         const setUserRole = httpsCallable(functions, 'setUserRole');
         await setUserRole({ email: data.email, role: data.role });
         success = true;
-        await fetchUsers(); // Re-fetch the user list to show updated roles
-    } catch (err: any) {
+        await fetchUsers();
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Vyskytla sa chyba pri ukladaní.";
       console.error("Error setting user role: ", err);
-      setFormError(err.message || "Vyskytla sa chyba pri ukladaní.");
+      setFormError(errorMessage);
     } finally {
       setIsSubmitting(false);
       if (success) {
@@ -74,31 +81,64 @@ export default function UsersAdminPage() {
     }
   };
   
-  const handleDeleteUser = async (userId: string) => {
-      // Deleting users is a very sensitive operation, so we will add it later if needed.
-      // For now, we just show an alert.
-      alert("Mazanie používateľov zatiaľ nie je implementované.");
-  }
+  const handleDeleteUser = async (uid: string) => {
+      if (window.confirm('Naozaj si prajete vymazať tohto používateľa? Táto akcia je nezvratná.')) {
+        try {
+            const functions = getFunctions();
+            const deleteUser = httpsCallable(functions, 'deleteUser');
+            await deleteUser({ uid });
+            alert('Používateľ bol úspešne vymazaný.');
+            await fetchUsers(); // Re-fetch the user list
+        } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : "Vyskytla sa chyba pri mazaní.";
+            console.error("Error deleting user: ", err);
+            alert(`Chyba pri mazaní používateľa: ${errorMessage}`);
+        }
+      }
+  };
+
+  const filteredUsers = useMemo(() => {
+    return users.filter(user =>
+      (user.displayName?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+      user.email.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [users, searchTerm]);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Správa Používateľov</h1>
           <p className="text-text-muted">
             Prideľujte role a spravujte prístupy používateľov.
           </p>
         </div>
-        <Button className="flex items-center gap-2" onClick={() => handleOpenDialog()}>
-          <PlusCircle className="h-4 w-4" />
-          <span>Pozvať Používateľa</span>
-        </Button>
+        <div className="flex items-center gap-2">
+            <div className="relative w-full max-w-sm">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-text-muted" />
+                <Input 
+                    placeholder="Hľadať podľa mena alebo emailu..." 
+                    className="pl-8" 
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+            <Button className="flex items-center gap-2" onClick={() => handleOpenDialog()}>
+                <PlusCircle className="h-4 w-4" />
+                <span>Pozvať</span>
+            </Button>
+        </div>
       </div>
       
-      {error && <p className="text-red-500">{error}</p>}
+      {error && (
+        <div className="flex items-center gap-3 bg-red-500/10 text-red-500 p-4 rounded-md">
+            <AlertTriangle className="h-6 w-6" />
+            <p>{error}</p>
+        </div>
+      )}
 
       <UsersTable 
-        users={users} 
+        users={filteredUsers} 
         onEdit={handleOpenDialog} 
         onDelete={handleDeleteUser}
         isLoading={isLoading}

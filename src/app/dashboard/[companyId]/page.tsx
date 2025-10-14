@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { doc, onSnapshot, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, getDoc, FirestoreError } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { notFound, useParams } from 'next/navigation';
 import withAuth from '@/lib/with-auth';
@@ -12,11 +12,16 @@ import { CashFlowTab } from './cash-flow-tab';
 import { AccountExplorerTab } from './account-explorer-tab';
 import { Building2, Loader2, AlertTriangle } from "lucide-react";
 
-// Define the structure of the financial data we expect from Firestore
+// Define a more specific structure for the financial data to avoid 'any'
 interface FinancialData {
-    incomeStatement: any;
-    balanceSheet: any;
+    incomeStatement: Record<string, unknown>; // Replace unknown with a more specific type if available
+    balanceSheet: Record<string, unknown>; // Replace unknown with a more specific type if available
     lastSync: string;
+}
+
+interface CompanyData {
+    name: string;
+    // other company properties
 }
 
 function DashboardPage() {
@@ -37,12 +42,14 @@ function DashboardPage() {
             const companyDocRef = doc(db, 'companies', companyId);
             const companySnap = await getDoc(companyDocRef);
             if (companySnap.exists()) {
-                setCompanyName(companySnap.data().name);
+                setCompanyName((companySnap.data() as CompanyData).name);
             } else {
+                // This will trigger the not-found page
                 return notFound();
             }
-        } catch (err) {
-            setError("Nepodarilo sa načítať informácie o spoločnosti.");
+        } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : "An unknown error occurred.";
+            setError(`Nepodarilo sa načítať informácie o spoločnosti: ${errorMessage}`);
         }
     };
     
@@ -55,16 +62,15 @@ function DashboardPage() {
         setFinancialData(doc.data() as FinancialData);
         setError(null);
       } else {
-        // No data found after sync, which is a valid state
         setFinancialData(null); 
       }
       setIsLoading(false);
-    }, (err) => {
+    }, (err: FirestoreError) => {
       console.error("Error fetching financial data:", err);
       if (err.code === 'permission-denied') {
           setError("Nemáte oprávnenie na zobrazenie dát pre túto spoločnosť. Kontaktujte administrátora.");
       } else {
-          setError("Chyba pri načítavaní finančných dát.");
+          setError(`Chyba pri načítavaní finančných dát: ${err.message}`);
       }
       setIsLoading(false);
     });
