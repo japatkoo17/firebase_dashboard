@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions";
 import admin from "firebase-admin";
-import { synchronizeCompanyData } from './sync-logic.js';
+import { synchronizeCompanyData, processRawData } from './sync-logic.js'; // Assuming processRawData is exported
 
 // --- INITIALIZATION ---
 admin.initializeApp();
@@ -49,37 +49,47 @@ export const runCompanySync = onCall(async (request) => {
 
     try {
         const companySnap = await companyRef.get();
-        if (!companySnap.exists()) {
+        if (!companySnap.exists) {
             throw new HttpsError('not-found', 'Company not found.');
         }
 
-        // 1. Get password from the secure sub-collection
         const credentialsRef = companyRef.collection('abraflexi_credentials').doc('credentials');
         const credentialsSnap = await credentialsRef.get();
-        if (!credentialsSnap.exists()) {
-            throw new HttpsError('not-found', 'Password for this company is not set. Please edit the company and set the password.');
+        if (!credentialsSnap.exists) {
+            throw new HttpsError('not-found', 'Password for this company is not set.');
         }
         const password = credentialsSnap.data().password;
 
-        // 2. Run the synchronization logic
         const companyData = companySnap.data();
-        const financialData = await synchronizeCompanyData(companyData, password);
-        
-        // 3. Save the new financial data
-        await companyRef.collection('financial_data').doc('latest').set(financialData);
-        
+        const rawData = await synchronizeCompanyData(companyData, password);
+
+        // Save raw data
+        await companyRef.collection('financial_data').doc('raw_latest').set({
+            rawData,
+            lastSync: new Date().toISOString(),
+        });
+
+        // Process and save structured data
+        const processedData = processRawData(rawData['winstrom']?.['stav-uctu'] || []);
+        await companyRef.collection('financial_data').doc('latest').set({
+            ...processedData,
+            lastSync: new Date().toISOString(),
+        });
+
         logger.info(`Successfully synced data for company: ${companyId}`);
         return { success: true, message: `Sync for ${companyData.name} complete.` };
 
     } catch (error) {
         logger.error(`Error syncing company ${companyId}:`, error);
+        if (error instanceof HttpsError) {
+            throw error;
+        }
         throw new HttpsError('internal', error.message || 'Failed to synchronize company data.');
     }
 });
 
 
 // --- Other Functions (Unchanged) ---
-
 export const listUsers = onCall(async (request) => {
     if (!request.auth || request.auth.token.admin !== true) {
       throw new HttpsError('permission-denied', 'Must be an admin to list users.');
@@ -145,14 +155,38 @@ export const runAllCompaniesSync = onSchedule("every 24 hours", async () => {
     
     for (const doc of companiesSnapshot.docs) {
         const companyId = doc.id;
-        const companyData = doc.data();
-        if (!companyData.abraflexiUrl || !companyData.abraflexiUser) {
-            logger.warn(`Skipping sync for ${companyId}, missing credentials.`);
-            continue;
-        }
-
+        
         try {
-            await runCompanySync({ data: { companyId }, auth: { token: { admin: true } } });
+            const companySnap = await db.collection('companies').doc(companyId).get();
+            if(!companySnap.exists) continue;
+            const companyData = companySnap.data();
+
+            if (!companyData.abraflexiUrl || !companyData.abraflexiUser) {
+                logger.warn(`Skipping sync for ${companyId}, missing credentials.`);
+                continue;
+            }
+             const credentialsRef = db.collection('companies').doc(companyId).collection('abraflexi_credentials').doc('credentials');
+             const credentialsSnap = await credentialsRef.get();
+             if (!credentialsSnap.exists()) {
+                logger.warn(`Skipping sync for ${companyId}, missing password.`);
+                continue;
+             }
+             const password = credentialsSnap.data().password;
+             const rawData = await synchronizeCompanyData(companyData, password);
+             
+             await db.collection('companies').doc(companyId).collection('financial_data').doc('raw_latest').set({
+                rawData,
+                lastSync: new Date().toISOString(),
+            });
+    
+            const processedData = processRawData(rawData['winstrom']?.['stav-uctu'] || []);
+            await db.collection('companies').doc(companyId).collection('financial_data').doc('latest').set({
+                ...processedData,
+                lastSync: new Date().toISOString(),
+            });
+
+             logger.info(`Scheduled sync successful for ${companyId}`);
+
         } catch (err) {
             logger.error(`Scheduled sync failed for ${companyId}:`, err);
         }

@@ -1,7 +1,6 @@
 import fetch from 'node-fetch';
 
 // --- Configuration ---
-// Based on the provided AppScript code for SK legislation
 const ACCOUNT_CONFIG = {
   ASSETS: ['0', '1', '2'],
   LIABILITIES_AND_EQUITY: ['4'],
@@ -14,7 +13,7 @@ const ACCOUNT_CONFIG = {
   RECEIVABLES: ['31'],
   PAYABLES: ['32'],
   EQUITY: ['4'],
-  CONTRA_ASSETS: ['07', '08', '09'], // Depreciation accounts (Oprávky)
+  CONTRA_ASSETS: ['07', '08', '09'],
 };
 
 // --- Helper Functions ---
@@ -27,16 +26,7 @@ function parseNumber(value) {
   return 0;
 }
 
-/**
- * Fetches raw accounting data from the AbraFlexi API for a specific year.
- * @param {string} fullUrl The complete URL for the company's AbraFlexi endpoint.
- * @param {string} user The API username.
- * @param {string} password The API password.
- * @param {string} year The accounting year to fetch (e.g., "2025").
- * @returns {Promise<Array>} A promise that resolves to the raw account data.
- */
 async function fetchFromAbraFlexi(fullUrl, user, password, year = "2025") {
-  // Ensure the URL ends with a slash before appending the endpoint details
   const baseUrl = fullUrl.endsWith('/') ? fullUrl : `${fullUrl}/`;
   const endpoint = `${baseUrl}stav-uctu/(ucetniObdobi%20%3D%20%22code%3A${year}%22)?limit=0&detail=full`;
   const credentials = Buffer.from(`${user}:${password}`).toString('base64');
@@ -53,32 +43,24 @@ async function fetchFromAbraFlexi(fullUrl, user, password, year = "2025") {
     throw new Error(`AbraFlexi API request failed: ${response.status} ${response.statusText}. Body: ${errorBody}`);
   }
 
-  const jsonResponse = await response.json();
-  return jsonResponse?.['winstrom']?.['stav-uctu'] || [];
+  return await response.json();
 }
 
-
-// --- Data Processing Functions (Adapted from AppScript) ---
+// --- Data Processing Functions ---
 
 function processIncomeStatement(rawData) {
     let monthlyData = Array.from({ length: 12 }, () => ({ revenue: 0, costs: 0, profit: 0, depreciation: 0 }));
-
-    rawData.forEach(row => {
+    (rawData || []).forEach(row => {
         const ucet = String(row.ucet?.replace('code:', '') || '');
-
         if (ACCOUNT_CONFIG.REVENUE.some(prefix => ucet.startsWith(prefix))) {
             for (let i = 0; i < 12; i++) {
-                const dal = parseNumber(row[`obratDal${String(i + 1).padStart(2, '0')}`]);
-                const md = parseNumber(row[`obratMd${String(i + 1).padStart(2, '0')}`]);
-                monthlyData[i].revenue += (dal - md);
+                monthlyData[i].revenue += (parseNumber(row[`obratDal${String(i + 1).padStart(2, '0')}`]) - parseNumber(row[`obratMd${String(i + 1).padStart(2, '0')}`]));
             }
         } else if (ACCOUNT_CONFIG.COSTS.some(prefix => ucet.startsWith(prefix))) {
             for (let i = 0; i < 12; i++) {
-                const md = parseNumber(row[`obratMd${String(i + 1).padStart(2, '0')}`]);
-                const dal = parseNumber(row[`obratDal${String(i + 1).padStart(2, '0')}`]);
-                const cost = md - dal;
+                const cost = parseNumber(row[`obratMd${String(i + 1).padStart(2, '0')}`]) - parseNumber(row[`obratDal${String(i + 1).padStart(2, '0')}`]);
                 monthlyData[i].costs += cost;
-                if (ucet.startsWith('551')) { // Depreciation costs
+                if (ucet.startsWith('551')) {
                     monthlyData[i].depreciation += cost;
                 }
             }
@@ -87,53 +69,30 @@ function processIncomeStatement(rawData) {
 
     let cumulativeRevenue = 0, cumulativeCosts = 0;
     const cumulativeData = [];
-
     for (let i = 0; i < 12; i++) {
         monthlyData[i].profit = monthlyData[i].revenue - monthlyData[i].costs;
         monthlyData[i].month = i + 1;
-        
         cumulativeRevenue += monthlyData[i].revenue;
         cumulativeCosts += monthlyData[i].costs;
-        cumulativeData.push({
-            month: i + 1,
-            revenue: cumulativeRevenue,
-            costs: cumulativeCosts,
-            profit: cumulativeRevenue - cumulativeCosts,
-        });
+        cumulativeData.push({ month: i + 1, revenue: cumulativeRevenue, costs: cumulativeCosts, profit: cumulativeRevenue - cumulativeCosts });
     }
-    
     return { monthly: monthlyData, cumulative: cumulativeData };
 }
 
 function processBalanceSheet(rawData) {
-    const emptyMonth = () => ({
-        assets: 0, liabilities: 0, equity: 0,
-        fixedAssets: 0, currentAssets: 0, cash: 0,
-        receivables: 0, payables: 0, otherAssets: 0, otherLiabilities: 0
-    });
-
-    let monthlyBalances = Array.from({ length: 13 }, emptyMonth); // Month 0 is initial state
-
-    rawData.forEach(row => {
+    const emptyMonth = () => ({ assets: 0, liabilities: 0, equity: 0, fixedAssets: 0, currentAssets: 0, cash: 0, receivables: 0, payables: 0, otherAssets: 0, otherLiabilities: 0 });
+    let monthlyBalances = Array.from({ length: 13 }, emptyMonth);
+    (rawData || []).forEach(row => {
         const ucet = String(row.ucet?.replace('code:', '') || '');
         if (!ucet) return;
-
-        // Process initial balance (Pocatek)
-        const pocatekBalance = parseNumber(row.pocatek);
-        processBalance(monthlyBalances[0], ucet, pocatekBalance);
-
-        // Process balances for each month (StavXX)
+        processBalance(monthlyBalances[0], ucet, parseNumber(row.pocatek));
         for (let i = 0; i < 12; i++) {
-            const balance = parseNumber(row[`stav${String(i + 1).padStart(2, '0')}`]);
-            processBalance(monthlyBalances[i + 1], ucet, balance);
+            processBalance(monthlyBalances[i + 1], ucet, parseNumber(row[`stav${String(i + 1).padStart(2, '0')}`]));
         }
     });
-
-    // Final calculations and balance checks
     return monthlyBalances.map((month, i) => {
         month.otherAssets = month.currentAssets - month.receivables - month.cash;
         month.month = i;
-        // ... add balance check logic if needed ...
         return month;
     });
 }
@@ -161,33 +120,27 @@ function processBalance(monthData, ucet, balance) {
             monthData.equity += balance;
         }
     }
-     // Standalone Payables (Záväzky)
     if (ACCOUNT_CONFIG.PAYABLES.some(prefix => ucet.startsWith(prefix))) {
         monthData.payables += balance;
     }
 }
 
+/**
+ * New exported function to process raw data.
+ */
+export function processRawData(rawData) {
+    const incomeStatement = processIncomeStatement(rawData);
+    const balanceSheet = { monthly: processBalanceSheet(rawData) };
+    return { incomeStatement, balanceSheet };
+}
 
 /**
- * Main orchestrator function to sync data for a single company.
- * @param {object} companyData The company document from Firestore.
- * @param {string} abraFlexiPassword The password from Secret Manager.
- * @returns {Promise<object>} A promise that resolves to the processed financial data.
+ * Main orchestrator function changed to ONLY fetch and return raw data.
  */
 export async function synchronizeCompanyData(companyData, abraFlexiPassword) {
     const { abraflexiUrl, abraflexiUser } = companyData;
     if (!abraflexiUrl || !abraflexiUser || !abraFlexiPassword) {
         throw new Error(`Missing AbraFlexi credentials for company ${companyData.name}`);
     }
-
-    const rawData = await fetchFromAbraFlexi(abraflexiUrl, abraflexiUser, abraFlexiPassword);
-    
-    const incomeStatement = processIncomeStatement(rawData);
-    const balanceSheet = { monthly: processBalanceSheet(rawData) };
-
-    return {
-        incomeStatement,
-        balanceSheet,
-        lastSync: new Date().toISOString(),
-    };
+    return await fetchFromAbraFlexi(abraflexiUrl, abraflexiUser, abraFlexiPassword);
 }

@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { doc, onSnapshot, getDoc, FirestoreError } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { notFound, useParams } from 'next/navigation';
-import withAuth from '@/lib/with-auth';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PnlTab } from './pnl-tab';
 import { BalanceSheetTab } from './balance-sheet-tab';
@@ -12,16 +11,14 @@ import { CashFlowTab } from './cash-flow-tab';
 import { AccountExplorerTab } from './account-explorer-tab';
 import { Building2, Loader2, AlertTriangle } from "lucide-react";
 
-// Define a more specific structure for the financial data to avoid 'any'
 interface FinancialData {
-    incomeStatement: Record<string, unknown>; // Replace unknown with a more specific type if available
-    balanceSheet: Record<string, unknown>; // Replace unknown with a more specific type if available
+    incomeStatement: Record<string, unknown>;
+    balanceSheet: Record<string, unknown>;
     lastSync: string;
 }
 
 interface CompanyData {
     name: string;
-    // other company properties
 }
 
 function DashboardPage() {
@@ -36,7 +33,6 @@ function DashboardPage() {
   useEffect(() => {
     if (!companyId) return;
 
-    // Fetch company's static data (like name)
     const fetchCompanyName = async () => {
         try {
             const companyDocRef = doc(db, 'companies', companyId);
@@ -44,7 +40,6 @@ function DashboardPage() {
             if (companySnap.exists()) {
                 setCompanyName((companySnap.data() as CompanyData).name);
             } else {
-                // This will trigger the not-found page
                 return notFound();
             }
         } catch (err: unknown) {
@@ -55,7 +50,6 @@ function DashboardPage() {
     
     fetchCompanyName();
 
-    // Listen for real-time updates on financial data
     const dataDocRef = doc(db, 'companies', companyId, 'financial_data', 'latest');
     const unsubscribe = onSnapshot(dataDocRef, (doc) => {
       if (doc.exists()) {
@@ -106,7 +100,7 @@ function DashboardPage() {
       {!financialData && !error && (
            <div className="text-center bg-bg-muted p-8 rounded-lg">
                 <h3 className="text-xl font-semibold">Žiadne Finančné Dáta</h3>
-                <p className="text-text-muted mt-2">Pre túto spoločnosť zatiaľ neboli synchronizované žiadne dáta. Spustite prosím synchronizáciu v admin paneli.</p>
+                <p className="text-text-muted mt-2">Pre túto spoločnosť zatiaľ neboli synchronizované žiadne dáta.</p>
             </div>
       )}
       
@@ -116,7 +110,6 @@ function DashboardPage() {
             <TabsTrigger value="pnl">Výkaz Ziskov a Strát</TabsTrigger>
             <TabsTrigger value="bs">Súvaha</TabsTrigger>
             <TabsTrigger value="cf">Cash Flow</TabsTrigger>
-            {/* Account Explorer can stay with mock data for now, or be connected later */}
             <TabsTrigger value="explorer">Prieskumník Účtov</TabsTrigger>
             </TabsList>
 
@@ -138,4 +131,4 @@ function DashboardPage() {
   );
 }
 
-export default withAuth(DashboardPage);
+export default DashboardPage;

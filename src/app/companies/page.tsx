@@ -1,13 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-provider';
 import { db } from '@/lib/firebase';
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, where, documentId } from 'firebase/firestore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Briefcase, Loader2 } from 'lucide-react';
-import withAuth from '@/lib/with-auth';
 
 interface CompanyForDisplay {
   id: string;
@@ -19,60 +18,64 @@ interface CompanyForDisplay {
 
 function CompaniesPage() {
   const router = useRouter();
-  const { user, isAdmin } = useAuth(); // Get user and isAdmin status
+  const { user, isAdmin } = useAuth();
 
   const [companies, setCompanies] = useState<CompanyForDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchCompanies = useCallback(async () => {
     if (!user) {
+      // ClientLayout handles redirection, so we just wait for the user object.
       return;
     }
 
-    const fetchCompanies = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        let companiesQuery;
-        if (isAdmin) {
-          // Admin sees all companies
-          companiesQuery = query(collection(db, 'companies'));
-        } else {
-          // Regular user sees only allowed companies
-          const permissionsDocRef = doc(db, 'permissions', user.uid);
-          const permissionsSnap = await getDoc(permissionsDocRef);
+    setIsLoading(true);
+    setError(null);
+    try {
+      let finalCompanies: CompanyForDisplay[] = [];
 
-          if (!permissionsSnap.exists() || !permissionsSnap.data().allowedCompanies?.length) {
-            setCompanies([]);
-            setIsLoading(false);
-            return;
-          }
-          const allowedCompanyIds = permissionsSnap.data().allowedCompanies as string[];
-          companiesQuery = query(collection(db, 'companies'), where('__name__', 'in', allowedCompanyIds));
-        }
-        
-        const companiesSnapshot = await getDocs(companiesQuery);
-        const userCompanies = companiesSnapshot.docs.map(doc => ({
+      if (isAdmin) {
+        // --- ADMIN PATH ---
+        const companiesQuery = query(collection(db, 'companies'));
+        const querySnapshot = await getDocs(companiesQuery);
+        finalCompanies = querySnapshot.docs.map(doc => ({
           id: doc.id,
-          name: doc.data().name,
-          ico: doc.data().ico,
-          currency: doc.data().currency,
-          accountingStandard: doc.data().accountingStandard,
+          ...doc.data(),
         } as CompanyForDisplay));
+      } else {
+        // --- REGULAR USER PATH ---
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDocSnap = await getDoc(userDocRef);
 
-        setCompanies(userCompanies);
-
-      } catch (err) {
-        console.error("Error fetching companies:", err);
-        setError("Nepodarilo sa načítať vaše spoločnosti. Skúste to prosím neskôr.");
-      } finally {
-        setIsLoading(false);
+        if (userDocSnap.exists() && userDocSnap.data().allowedCompanies?.length > 0) {
+          const allowedCompanyIds = userDocSnap.data().allowedCompanies as string[];
+          
+          const companyPromises = allowedCompanyIds.map(id => getDoc(doc(db, 'companies', id)));
+          const companySnapshots = await Promise.all(companyPromises);
+          
+          finalCompanies = companySnapshots
+            .filter(snap => snap.exists())
+            .map(snap => ({
+              id: snap.id,
+              ...snap.data(),
+            } as CompanyForDisplay));
+        }
       }
-    };
+      
+      setCompanies(finalCompanies);
 
-    fetchCompanies();
+    } catch (err) {
+      console.error("Error fetching companies:", err);
+      setError("Nepodarilo sa načítať vaše spoločnosti. Skúste to prosím neskôr.");
+    } finally {
+      setIsLoading(false);
+    }
   }, [user, isAdmin]);
+
+  useEffect(() => {
+    fetchCompanies();
+  }, [fetchCompanies]);
 
   const handleCompanySelect = (companyId: string) => {
     router.push(`/dashboard/${companyId}`);
@@ -145,4 +148,4 @@ function CompaniesPage() {
   );
 }
 
-export default withAuth(CompaniesPage);
+export default CompaniesPage;
