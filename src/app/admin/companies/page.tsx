@@ -21,8 +21,7 @@ interface HttpsError extends Error {
     details?: any;
 }
 
-
-export default function CompaniesAdminPage() {
+function CompaniesAdmin() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -132,7 +131,7 @@ export default function CompaniesAdminPage() {
   const filteredCompanies = useMemo(() => {
     return companies.filter(company =>
       company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      company.ico.toLowerCase().includes(searchTerm.toLowerCase())
+      (company.ico && company.ico.toLowerCase().includes(searchTerm.toLowerCase()))
     );
   }, [companies, searchTerm]);
 
@@ -191,4 +190,8 @@ export default function CompaniesAdminPage() {
       </Dialog>
     </div>
   );
+}
+
+export default function CompaniesAdminPage() {
+    return <CompaniesAdmin />;
 }

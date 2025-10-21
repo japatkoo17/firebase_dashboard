@@ -11,34 +11,32 @@ import { CashFlowTab } from './cash-flow-tab';
 import { AccountExplorerTab } from './account-explorer-tab';
 import { Building2, Loader2, AlertTriangle, Clock } from "lucide-react";
 
+// This is the new, definitive data structure for our Firestore document
 interface FinancialData {
-    incomeStatement: Record<string, unknown>;
-    balanceSheet: Record<string, unknown>;
-    lastSync: string; // ISO 8601 string format
+    rawData: any[];
+    processedData: {
+        incomeStatement: any;
+        balanceSheet: any;
+    };
+    lastSync: string;
 }
 
 interface CompanyData {
     name: string;
 }
 
-// Helper to format the timestamp
 const formatLastSync = (isoString: string | undefined): string => {
     if (!isoString) return 'N/A';
     try {
         const date = new Date(isoString);
         return date.toLocaleString('sk-SK', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
         });
     } catch (e) {
         return 'Neplatný dátum';
     }
 };
-
 
 function DashboardPage() {
   const params = useParams();
@@ -80,11 +78,7 @@ function DashboardPage() {
       setIsLoading(false);
     }, (err: FirestoreError) => {
       console.error("Error fetching financial data:", err);
-      if (err.code === 'permission-denied') {
-          setError("Nemáte oprávnenie na zobrazenie dát pre túto spoločnosť. Kontaktujte administrátora.");
-      } else {
-          setError(`Chyba pri načítavaní finančných dát: ${err.message}`);
-      }
+      setError(`Chyba pri načítavaní finančných dát: ${err.message}`);
       setIsLoading(false);
     });
 
@@ -107,7 +101,6 @@ function DashboardPage() {
             <Building2 className="h-8 w-8 text-brand" />
             <h1 className="text-3xl font-bold tracking-tight">{companyName}</h1>
         </div>
-        {/* --- LAST SYNC DISPLAY --- */}
         {financialData?.lastSync && (
             <div className="flex items-center text-sm text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-full">
                 <Clock className="h-4 w-4 mr-2" />
@@ -126,27 +119,27 @@ function DashboardPage() {
       {!financialData && !error && (
            <div className="text-center bg-bg-muted p-8 rounded-lg">
                 <h3 className="text-xl font-semibold">Žiadne Finančné Dáta</h3>
-                <p className="text-text-muted mt-2">Pre túto spoločnosť zatiaľ neboli synchronizované žiadne dáta.</p>
+                <p className="text-text-muted mt-2">Pre túto spoločnosť zatiaľ neboli synchronizované žiadne dáta. Spustite synchronizáciu v administrácii.</p>
             </div>
       )}
       
-      {financialData && (
+      {financialData && financialData.processedData && (
         <Tabs defaultValue="pnl" className="space-y-4">
             <TabsList>
-            <TabsTrigger value="pnl">Výkaz Ziskov a Strát</TabsTrigger>
-            <TabsTrigger value="bs">Súvaha</TabsTrigger>
-            <TabsTrigger value="cf">Cash Flow</TabsTrigger>
-            <TabsTrigger value="explorer">Prieskumník Dát</TabsTrigger>
+                <TabsTrigger value="pnl">Výkaz Ziskov a Strát</TabsTrigger>
+                <TabsTrigger value="bs">Súvaha</TabsTrigger>
+                <TabsTrigger value="cf">Cash Flow</TabsTrigger>
+                <TabsTrigger value="explorer">Prieskumník Dát</TabsTrigger>
             </TabsList>
-
+            
             <TabsContent value="pnl">
-              <PnlTab data={financialData.incomeStatement as any} />
+              <PnlTab data={financialData.processedData.incomeStatement} />
             </TabsContent>
             <TabsContent value="bs">
-              <BalanceSheetTab data={financialData.balanceSheet as any} />
+              <BalanceSheetTab data={financialData.processedData.balanceSheet} />
             </TabsContent>
             <TabsContent value="cf">
-              <CashFlowTab data={financialData as any} />
+              <CashFlowTab data={financialData.processedData} />
             </TabsContent>
             <TabsContent value="explorer">
                 <AccountExplorerTab companyId={companyId} />
