@@ -9,17 +9,36 @@ import { PnlTab } from './pnl-tab';
 import { BalanceSheetTab } from './balance-sheet-tab';
 import { CashFlowTab } from './cash-flow-tab';
 import { AccountExplorerTab } from './account-explorer-tab';
-import { Building2, Loader2, AlertTriangle } from "lucide-react";
+import { Building2, Loader2, AlertTriangle, Clock } from "lucide-react";
 
 interface FinancialData {
     incomeStatement: Record<string, unknown>;
     balanceSheet: Record<string, unknown>;
-    lastSync: string;
+    lastSync: string; // ISO 8601 string format
 }
 
 interface CompanyData {
     name: string;
 }
+
+// Helper to format the timestamp
+const formatLastSync = (isoString: string | undefined): string => {
+    if (!isoString) return 'N/A';
+    try {
+        const date = new Date(isoString);
+        return date.toLocaleString('sk-SK', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+        });
+    } catch (e) {
+        return 'Neplatný dátum';
+    }
+};
+
 
 function DashboardPage() {
   const params = useParams();
@@ -83,11 +102,18 @@ function DashboardPage() {
 
   return (
     <main className="flex-1 space-y-4 p-4 md:p-8 pt-6">
-      <div className="flex items-center justify-between space-y-2">
+      <div className="flex flex-wrap items-center justify-between space-y-2">
         <div className="flex items-center space-x-4">
             <Building2 className="h-8 w-8 text-brand" />
             <h1 className="text-3xl font-bold tracking-tight">{companyName}</h1>
         </div>
+        {/* --- LAST SYNC DISPLAY --- */}
+        {financialData?.lastSync && (
+            <div className="flex items-center text-sm text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-full">
+                <Clock className="h-4 w-4 mr-2" />
+                <span>Posledná aktualizácia: <strong>{formatLastSync(financialData.lastSync)}</strong></span>
+            </div>
+        )}
       </div>
 
       {error && (
@@ -110,20 +136,20 @@ function DashboardPage() {
             <TabsTrigger value="pnl">Výkaz Ziskov a Strát</TabsTrigger>
             <TabsTrigger value="bs">Súvaha</TabsTrigger>
             <TabsTrigger value="cf">Cash Flow</TabsTrigger>
-            <TabsTrigger value="explorer">Prieskumník Účtov</TabsTrigger>
+            <TabsTrigger value="explorer">Prieskumník Dát</TabsTrigger>
             </TabsList>
 
             <TabsContent value="pnl">
-              <PnlTab data={financialData.incomeStatement} />
+              <PnlTab data={financialData.incomeStatement as any} />
             </TabsContent>
             <TabsContent value="bs">
-              <BalanceSheetTab data={financialData.balanceSheet} />
+              <BalanceSheetTab data={financialData.balanceSheet as any} />
             </TabsContent>
             <TabsContent value="cf">
-              <CashFlowTab data={financialData} />
+              <CashFlowTab data={financialData as any} />
             </TabsContent>
             <TabsContent value="explorer">
-                <AccountExplorerTab />
+                <AccountExplorerTab companyId={companyId} />
             </TabsContent>
         </Tabs>
       )}
